@@ -1,0 +1,55 @@
+drop database if exists pos;
+create database pos;
+
+use pos;
+
+create table City (
+        Zip Decimal(5) PRIMARY KEY,
+        City Varchar(32),
+        State Varchar(4)
+);
+
+create table Product(
+        ProductID int PRIMARY KEY,
+        Name Varchar(128),
+        CurrentPrice Decimal(6,2),
+        QtyOnHand int
+);
+
+create table Customer (
+        CustomerID int PRIMARY KEY,
+        FirstName Varchar(32),
+        LastName Varchar(32),
+        Email Varchar(128),
+        Address1 Varchar(128),
+        Address2 Varchar(128),
+        Phone Varchar(32),
+        BirthDate Date,
+        Zip Decimal(5) FOREIGN KEY REFERENCES City(Zip)
+);
+
+create table Order
+        OrderID bigint unsigned PRIMARY KEY,
+        datePlaced Date,
+        dateShipped Date,
+        CustomerID int FOREIGN KEY REFERENCES Customer(CustomerID)
+);
+
+create table OrderLine (
+        OrderID bigint unsigned,
+        Quantity int,
+        ProductID int,
+        PRIMARY KEY(OrderID, ProductID),
+        FOREIGN KEY(OrderID) REFERENCES Order(OrderID),
+        FOREIGN KEY(ProductID) REFERENCES Product(ProductID)
+
+);
+
+create table PriceHistory (
+        ChangeID bigint unsigned PRIMARY KEY,
+        OldPrice Decimal(6,2),
+        NewPrice Decimal (6,2),
+        TS timestamp,
+        ProductID int FOREIGN KEY REFERENCES Product(ProductID)
+);
+

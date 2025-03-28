@@ -1,0 +1,20 @@
+1. select LastName AS 'Last Name', FirstName as 'First Name' from Customer ORDER BY LastName,FirstName LIMIT 50;e', FirstName as 'First Name' from Customer ORDER BY LastName,FirstName LIMIT 50;
+create view v_CustomerNames as select LastName AS 'Last Name', FirstName as 'First Name' from Customer ORDER BY LastName,FirstName;
+
+2. select CustomerID as 'customer_number', FirstName as 'first_name', LastName as 'last_name', Address1 as 'street1', Address2 as 'street2', City.City as 'City', City.State
+as 'ST', City.Zip as 'zip_code' from Customer INNER JOIN City on Customer.Zip=City.Zip limit 10;
+create or replace view v_Customers as select CustomerID as 'customer_number', FirstName as 'first_name', LastName as 'last_name', Address1 as 'street1', Address2 as 'street2', City.City as 'City', City.State as 'ST', City.Zip as 'zip_code' from Customer LEFT JOIN City on Customer.Zip=City.Zip;
+
+3. select Product.ProductID as 'productID', Product.Name as 'productName',GROUP_CONCAT(CONCAT(Customer.CustomerID,' ',Customer.FirstName,' ',Customer.LastName) ORDER BY Customer.CustomerID Separator',') as 'customers' from Product LEFT JOIN OrderLine on Product.ProductID= OrderLine.ProductID LEFT JOIN `Order` on OrderLine.OrderID=`Order`.OrderID LEFT JOIN
+Customer on `Order`.CustomerID=Customer.CustomerID GROUP BY ProductID,Name limit 10;
+create or replace view v_ProductBuyers as select Product.ProductID as 'productID', Product.Name as 'productName',GROUP_CONCAT(CONCAT(Customer.CustomerID,' ',Customer.FirstName,' ',Customer.LastName) ORDER BY Customer.CustomerID Separator',') as 'customers' from Product LEFT JOIN OrderLine on Product.ProductID= OrderLine.ProductID LEFT JOIN `Order` on OrderLine.OrderID=`Order`.OrderID LEFT JOIN Customer on `Order`.CustomerID=Customer.CustomerID GROUP BY ProductID,Name;
+
+4.select Customer.CustomerID,Customer.FirstName, Customer.LastName,GROUP_CONCAT(CONCAT(Product.ProductID,' ',Product.Name) ORDER BY Product.ProductID Separator'|') as 'products' from Product RIGHT JOIN OrderLine on Product.ProductID= OrderLine.ProductID RIGHT JOIN `Order` on OrderLine.OrderID=`Order`.OrderID RIGHT JOIN Customer on `Order`.CustomerID=Customer.CustomerID GROUP BY CustomerID limit 10;
+create or replace view v_CustomerPurchases as select Customer.CustomerID,Customer.FirstName, Customer.LastName,GROUP_CONCAT(CONCAT(Product.ProductID,' ',Product.Name) ORDER BY Product.ProductID Separator'|') as 'products' from Product RIGHT JOIN OrderLine on Product.ProductID= OrderLine.ProductID RIGHT JOIN `Order` on OrderLine.OrderID=`Order`.OrderID RIGHT JOIN Customer on `Order`.CustomerID=Customer.CustomerID GROUP BY CustomerID;
+
+5.create table mv_ProductBuyers as select * from v_ProductBuyers;
+ create table mv_CustomerPurchases as select * from v_CustomerPurchases;
+
+6.create index idx_CustomerEmail on Customer(Email);
+
+7.create index idx_ProductName on Product(Name);

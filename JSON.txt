@@ -1,0 +1,63 @@
+source trig.sql;
+
+-- first aggregate
+SELECT JSON_OBJECT(
+       'Customer Name',CONCAT(FirstName, ' ', LastName),
+       'Customer Address',CONCAT(Address1, '\n', IF(Address2 is NULL,' ',CONCAT(Address2, '\n')),City,' ',State,' ',Customer.Zip
+      ) AS cust1JSON
+FROM Customer
+JOIN City ON Customer.Zip = City.Zip
+INTO OUTFILE '/var/lib/mysql/pos/cust1.json';
+
+--second aggregate
+SELECT JSON_OBJECT(
+  'Product ID', Product.ProductID, 'Current Price', Product.CurrentPrice, 'Product Name', Product.Name, 
+  'Customer', JSON_ARRAYAGG(JSON_OBJECT('CustomerID', Customer.CustomerID, 'Customer Name',CONCAT(FirstName, ' ', LastName)))
+) AS prodJSON
+FROM Product
+LEFT JOIN OrderLine ON Product.ProductID = OrderLine.ProductID
+LEFT JOIN `Order` ON  OrderLine.OrderID = `Order`.OrderID
+LEFT JOIN Customer ON `Order`.CustomerID = Customer.CustomerID
+GROUP BY Product.ProductID, Product.Name, Product.CurrentPrice
+INTO OUTFILE '/var/lib/mysql/pos/prod.json';
+
+--third aggregate
+SELECT JSON_OBJECT(
+  'OrderID', `Order`.OrderID, 
+  'Buyer', JSON_OBJECT('CustomerID', Customer.CustomerID, 'Customer Name',CONCAT(FirstName, ' ', LastName)),
+  'Product', JSON_ARRAYAGG(JSON_OBJECT('ProductID',Product.ProductID, 'Product Name',Product.Name, 'Quantity',OrderLine.Quantity))
+) AS orderJSON
+FROM Customer
+LEFT JOIN `Order` ON Customer.CustomerID = `Order`.CustomerID
+LEFT JOIN OrderLine ON `Order`.OrderID = OrderLine.OrderID
+LEFT JOIN Product ON OrderLine.ProductID = Product.ProductID
+GROUP BY `Order`.OrderID
+INTO OUTFILE '/var/lib/mysql/pos/ord.json';
+
+
+--fourth aggregate
+
+SELECT JSON_OBJECT(
+  'Customer Name', CONCAT(FirstName, ' ', LastName),
+  'Customer Address', CONCAT(Address1, '\n', IF(Address2 is NULL,' ',CONCAT(Address2, '\n')),City,' ',State,' ',Customer.Zip),
+  'Order Placed', (
+    SELECT JSON_ARRAYAGG(
+      JSON_OBJECT('OrderTotal', `Order`.OrderTotal, 'Order Date', `Order`.datePlaced, 'Shipping Date', `Order`.dateShipped,
+  'Items', (
+    SELECT JSON_ARRAYAGG(
+      JSON_OBJECT('ProductID', Product.ProductID, 'Quantity', OrderLine.Quantity, 'Product Name', Product.Name)
+    )
+  
+  FROM OrderLine 
+  JOIN Product ON OrderLine.ProductID = Product.ProductID
+  WHERE OrderLine.OrderID = `Order`.OrderID
+        ) 
+      )
+     )
+  
+  FROM `Order`WHERE `Order`.CustomerID = Customer.CustomerID
+  )
+) AS cust2JSON
+FROM Customer 
+JOIN City ON Customer.Zip = City.Zip
+INTO OUTFILE '/var/lib/mysql/pos/cust2.json';

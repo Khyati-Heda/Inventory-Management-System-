@@ -1,0 +1,357 @@
+/* On my honor, as an Aggie, I have neither given nor received unauthorized assistance on this assignment. I further affirm that I have not and will not provide this code to any person, platform, or repository, without the express written permission of Dr. Gomillion. I understand that any violation of these standards will have serious repercussions. */
+
+
+source proc.sql
+
+use pos
+
+call proc_FillUnitPrice();
+
+call proc_FillOrderTotal();
+
+call proc_RefreshMV();
+
+CREATE TABLE TAXRATES (
+        State Varchar(20),
+        ZipCode FLOAT,
+        TaxRegion Varchar(40),
+        Combined_Rate FLOAT,
+        StateRate FLOAT,
+        Country_Rate FLOAT,
+        City_Rate FLOAT,
+        Special_Rate FLOAT,
+        Risk_Level FLOAT
+
+);
+
+--Loading TaxRates Data
+
+LOAD DATA LOCAL INFILE '/home/dgomillion/TAXRATES.csv' INTO TABLE TAXRATES
+FIELDS TERMINATED BY ','
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+
+--Alter PriceHistory
+
+ALTER TABLE PriceHistory MODIFY ChangeID bigint UNSIGNED AUTO_INCREMENT;
+ALTER TABLE PriceHistory MODIFY TS timestamp DEFAULT NOW();
+
+--Alter Order
+
+ALTER TABLE `Order` RENAME COLUMN OrderTotal TO OrderSubtotal;
+ALTER TABLE `Order` ADD SalesTax DECIMAL(5,2) DEFAULT 0.00;
+ALTER TABLE `Order` ADD OrderTotal DECIMAL(8,2) GENERATED ALWAYS AS (OrderSubTotal + SalesTax) VIRTUAL;
+
+--Trigger 1: Update NewPrice in Product table
+
+DELIMITER //
+CREATE TRIGGER trig_NewPriceUpdate AFTER UPDATE ON Product
+FOR EACH ROW
+BEGIN
+        IF New.CurrentPrice!= Old.CurrentPrice THEN
+                INSERT INTO PriceHistory (OldPrice, NewPrice ,TS, ProductID) VALUES (Old.CurrentPrice, New.CurrentPrice, now(), Old.ProductID);
+        END IF;
+END;
+//
+
+DELIMITER ;
+
+--Trigger 2: After Insert UnitPrice as CurrentPrice
+
+DELIMITER //
+CREATE TRIGGER trig_ChangeUnitPrice BEFORE INSERT ON OrderLine
+FOR EACH ROW
+        BEGIN
+                SET New.UnitPrice = (SELECT CurrentPrice FROM Product WHERE Product.ProductID= New.ProductID);
+        END;
+//
+
+DELIMITER ;
+
+--Trigger 3: Keep OrderSubTotal updated
+
+DELIMITER //
+CREATE TRIGGER trig_UpdateOrderSubTotal_insert AFTER INSERT ON OrderLine
+FOR EACH ROW
+        BEGIN
+                UPDATE `Order`
+                SET OrderSubTotal = (SELECT SUM(LineTotal)FROM OrderLine WHERE OrderLine.OrderID=`Order`.OrderID)
+                       WHERE OrderID= New.OrderID;
+        END;
+//
+
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_UpdateOrderSubTotal_update AFTER UPDATE ON OrderLine
+FOR EACH ROW
+        BEGIN
+                UPDATE `Order`
+                SET OrderSubTotal = (SELECT SUM(LineTotal)FROM OrderLine WHERE OrderLine.OrderID=`Order`.OrderID)
+                       WHERE OrderID= New.OrderID;
+        END;
+//
+
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_UpdateOrderSubTotal_delete AFTER DELETE ON OrderLine
+FOR EACH ROW
+        BEGIN
+                UPDATE `Order`
+                SET OrderSubTotal = (SELECT SUM(LineTotal)FROM OrderLine WHERE OrderLine.OrderID=`Order`.OrderID)
+                       WHERE OrderID= Old.OrderID;
+        END;
+//
+
+DELIMITER ;
+
+--Trigger 4:
+--Set Quantity 1 from NULL
+
+DELIMITER //
+CREATE TRIGGER trig_SetQty BEFORE INSERT ON OrderLine
+FOR EACH ROW
+        BEGIN
+                IF New.Quantity IS  NULL THEN
+                        SET New.Quantity = 1;
+                END IF;
+        END;
+//
+
+DELIMITER ;
+
+--Update QntOnHand in Product
+--After Insert
+DELIMITER //
+CREATE TRIGGER trig_InsertQty AFTER INSERT ON OrderLine
+FOR EACH ROW
+        BEGIN
+                UPDATE Product
+                SET QtyOnHand=QtyOnHand-New.Quantity
+                WHERE ProductID= New.ProductID;
+        END;
+//
+
+DELIMITER ;
+
+--After Update
+DELIMITER //
+CREATE TRIGGER trig_UpdateQty AFTER UPDATE ON OrderLine
+FOR EACH ROW
+        BEGIN
+                UPDATE Product
+                SET QtyOnHand=QtyOnHand+(Old.Quantity-New.Quantity)
+                WHERE ProductID= New.ProductID;
+        END;
+//
+
+DELIMITER ;
+
+--After Delete
+DELIMITER //
+CREATE TRIGGER trig_DeleteQty AFTER DELETE ON OrderLine
+FOR EACH ROW
+        BEGIN
+                UPDATE Product
+                SET QtyOnHand=QtyOnHand + Old.Quantity
+                WHERE ProductID= Old.ProductID;
+        END;
+//
+
+DELIMITER ;
+
+--Custom Exception
+
+DELIMITER //
+CREATE TRIGGER trig_Orderlineerror BEFORE INSERT ON OrderLine
+FOR EACH ROW
+        BEGIN
+
+                IF New.Quantity>(SELECT QtyOnHand FROM Product where Product.ProductID=New.ProductID) THEN
+                        SIGNAL SQLSTATE '45000'
+                        SET MESSAGE_TEXT= 'Error! Quantity is more than available quantity';
+                END IF;
+        END;
+//
+
+DELIMITER ;
+
+
+
+--Trigger 5
+--Rounding Off SalesTax
+
+/*DELIMITER //
+CREATE TRIGGER trig_RoundOffSalesTax AFTER INSERT ON OrderLine
+FOR EACH ROW
+        BEGIN
+                UPDATE `Order`
+                DECLARE SalesTax FLOAT;
+                SET SalesTax= (SELECT OrderSubTotal *(SELECT Combined_Rate from TAXRATES
+                               JOIN Customer ON TAXRATES.ZipCode = Customer.Zip
+                               WHERE Customer.CustomerID = (SELECT CustomerID from `Order`
+                               WHERE `Order`.OrderID= New.OrderID))) WHERE OrderID= New.OrderID;
+       END;
+//
+
+DELIMITER ;
+*/
+
+
+DELIMITER //
+CREATE TRIGGER trig_RoundOffSalesTax_insert AFTER INSERT ON OrderLine
+FOR EACH ROW
+BEGIN
+
+            UPDATE `Order`
+            JOIN Customer ON `Order`.CustomerID= Customer.CustomerID
+            JOIN TAXRATES ON TAXRATES.ZipCode= Customer.Zip
+            SET SalesTax =  ROUND( `Order`.OrderSubtotal * TAXRATES.Combined_Rate,2)
+            WHERE `Order`.OrderID = NEW.OrderID;
+
+END;
+//
+
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_RoundOffSalesTax_update AFTER UPDATE ON OrderLine
+FOR EACH ROW
+BEGIN
+
+            UPDATE `Order`
+            JOIN Customer ON `Order`.CustomerID= Customer.CustomerID
+            JOIN TAXRATES ON TAXRATES.ZipCode= Customer.Zip
+            SET SalesTax =  ROUND( `Order`.OrderSubtotal * TAXRATES.Combined_Rate,2)
+            WHERE `Order`.OrderID = NEW.OrderID;
+
+END;
+//
+
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_RoundOffSalesTax_delete AFTER DELETE ON OrderLine
+FOR EACH ROW
+BEGIN
+
+            UPDATE `Order`
+            JOIN Customer ON `Order`.CustomerID= Customer.CustomerID
+            JOIN TAXRATES ON TAXRATES.ZipCode= Customer.Zip
+            SET SalesTax =  ROUND( `Order`.OrderSubtotal * TAXRATES.Combined_Rate,2)
+            WHERE `Order`.OrderID = OLD.OrderID;
+
+
+END;
+//
+
+DELIMITER ;
+/*
+--Trigger 6
+--Stored Procedure
+
+--mv_ProductBuyers
+DELIMITER //
+CREATE OR REPLACE PROCEDURE proc_update_mvinsert(ProductID INT , OrderID INT)
+BEGIN
+   UPDATE mv_ProductBuyers
+    SET customers = (
+        SELECT
+        GROUP_CONCAT(DISTINCT CONCAT(Customer.CustomerID,' ',FirstName,' ',LastName)
+        order by Customer.CustomerID,Customer.FirstName SEPARATOR',') as customers FROM Product
+        LEFT JOIN OrderLine ON Product.ProductID = OrderLine.ProductID
+        LEFT JOIN `Order` On OrderLine.OrderID = `Order`.OrderID
+        LEFT JOIN Customer on `Order`.CustomerID = Customer.CustomerID
+        WHERE Product.ProductID = ProductID
+         GROUP BY ProductID,NAME);
+END;
+//
+DELIMITER ;
+
+
+--mv_CustomerPurchases
+DELIMITER //
+CREATE OR REPLACE PROCEDURE proc_update_mv2insert(ProductID INT , OrderID INT)
+BEGIN
+        UPDATE mv_CustomerPurchases CP
+        SET CP.products = (
+                SELECT
+                GROUP_CONCAT(DISTINCT CONCAT(Product.ProductID,' ',Product.Name)
+                order by Product.ProductID SEPARATOR '|') as products FROM Customer
+                LEFT JOIN `Order` on `Order`.CustomerID =Customer.CustomerID
+                LEFT JOIN OrderLine ON OrderLine.OrderID = `Order`.OrderID
+                LEFT JOIN Product ON Product.ProductID = ProductID
+                WHERE Customer.CustomerID = CP.CustomerID
+                GROUP BY Customer.CustomerID ,Customer.FirstName,Customer.LastName);
+
+END;
+//
+DELIMITER ;
+
+--Trigger for mv_ProductBuyers
+
+DELIMITER //
+CREATE TRIGGER trig_update_mv_insert
+AFTER INSERT ON OrderLine
+FOR EACH ROW
+BEGIN
+    CALL  proc_update_mvinsert(NEW.ProductID,NEW.OrderID);
+END;
+//
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_update_mv_update
+AFTER UPDATE ON OrderLine
+FOR EACH ROW
+BEGIN
+    CALL proc_update_mvinsert(NEW.ProductID,NEW.OrderID);
+END;
+//
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_update_mv_delete
+AFTER DELETE ON OrderLine
+FOR EACH ROW
+BEGIN
+    CALL proc_update_mvinsert(OLD.ProductID,OLD.OrderID);
+END;
+//
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_update_mv2_insert
+AFTER INSERT ON OrderLine
+FOR EACH ROW
+BEGIN
+    CALL  proc_update_mv2insert(NEW.ProductID,NEW.OrderID);
+END;
+//
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_update_mv2_update
+AFTER UPDATE ON OrderLine
+FOR EACH ROW
+BEGIN
+    CALL proc_update_mv2insert(NEW.ProductID,NEW.OrderID);
+END ;
+//
+DELIMITER ;
+
+DELIMITER //
+CREATE TRIGGER trig_update_mv2_delete
+AFTER DELETE ON OrderLine
+FOR EACH ROW
+BEGIN
+    CALL proc_update_mv2insert(OLD.ProductID,OLD.OrderID);
+END ;
+//
+DELIMITER ;
+
+*/
+
+
+

@@ -1,0 +1,164 @@
+/* On my honor, as an Aggie, I have neither given nor received unauthorized assistance on this assignment. I further affirm that I have not and will not provide this code to any person, platform, or repository, without the express written permission of Dr. Gomillion. I understand that any violation of these standards will have serious repercussions. */
+
+source structure.sql
+
+use pos;
+
+create table temp_customer(
+        CustomerID Varchar(128),
+        FirstName Varchar(128),
+        LastName Varchar(128),
+        City Varchar(128),
+        State Varchar(128),
+        Zip Varchar(128),
+        AddressLine1 Varchar(128),
+        AddressLine2 Varchar(128),
+        Email Varchar(128),
+        BirthDate Varchar(128)
+
+) ENGINE = InnoDB;
+
+create table temp_product(
+        ProductID Varchar(128),
+        ProductName Varchar(128),
+        ProductPrice Varchar(128),
+        QntOnHand Varchar(128)
+
+)ENGINE = InnoDB;
+
+create table temp_Orders(
+        OID Varchar(128),
+        CID Varchar(128),
+        DateOrdered Varchar(128),
+        DateShipped Varchar(128)
+
+)ENGINE = InnoDB;
+
+create table temp_OrderLine(
+        OID Varchar(128),
+        PID  Varchar(128)
+
+)ENGINE = InnoDB;
+
+--Loading Data
+
+LOAD DATA LOCAL INFILE '/home/dgomillion/customers.csv' INTO TABLE temp_customer
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+
+LOAD DATA LOCAL INFILE '/home/dgomillion/products.csv' INTO TABLE temp_product
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+
+LOAD DATA LOCAL INFILE '/home/dgomillion/orders.csv' INTO TABLE temp_Orders
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+
+
+LOAD DATA LOCAL INFILE '/home/dgomillion/orderlines.csv' INTO TABLE temp_OrderLine
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES;
+
+
+-- Fill Missing data as NULL
+
+UPDATE temp_customer
+SET BirthDate = NULL
+WHERE BirthDate = '';
+
+UPDATE temp_customer
+SET AddressLine2 = NULL
+WHERE AddressLine2 = '';
+
+
+--Update STRING to Date command for birthdates
+
+UPDATE temp_customer
+SET BirthDate = STR_TO_DATE(BirthDate, '%m/%d/%Y');
+
+--Insert values in City Table
+
+INSERT into City
+SELECT
+DISTINCT Zip,
+City,
+State
+from temp_customer GROUP BY Zip;
+
+--Insert into Customer Table
+
+INSERT INTO Customer (CustomerID, FirstName, LastName, Email, Address1, Address2, Phone, BirthDate, Zip)
+SELECT
+CustomerID,
+FirstName,
+LastName,
+Email,
+AddressLine1,
+AddressLine2,
+NULL as Phone,
+BirthDate,
+Zip
+FROM temp_customer;
+
+-- Update Price of Product
+-- Remove $ from Price
+
+UPDATE temp_product
+SET ProductPrice = REPLACE(ProductPrice,'$', '');
+
+--Remove , from Price
+
+UPDATE temp_product
+SET ProductPrice = REPLACE(ProductPrice,',', '');
+
+-- Insert into Product Table
+
+INSERT INTO Product (ProductID, Name, CurrentPrice, QtyOnHand)
+SELECT
+ProductID,
+ProductName,
+ProductPrice,
+QntOnHand
+FROM temp_product;
+
+/*Insert values in PriceHistory Table
+
+INSERT into PriceHistory
+SELECT
+ProductID
+from temp_product;
+*/
+
+--Update Order Table
+
+UPDATE temp_Orders
+SET DateShipped = NULL
+WHERE DateShipped = 'Cancelled';
+
+--Insert into Order Table
+
+INSERT INTO `Order` (OrderID, datePlaced, dateShipped, CustomerID)
+SELECT
+OID,
+DateOrdered,
+DateShipped,
+CID
+FROM temp_Orders;
+
+
+--insert into OrderLine
+INSERT INTO OrderLine (OrderID, ProductID, Quantity)
+SELECT
+OID,
+PID,
+Count(*) as Quantity
+FROM temp_OrderLine GROUP BY OID
+HAVING Count(*)>1;

@@ -1,0 +1,65 @@
+source views.sql;
+
+--Add UnitPrice
+
+ALTER Table OrderLine  ADD UnitPrice Decimal(6,2);
+
+--Add LineTotal
+
+ALTER Table OrderLine ADD LineTotal Decimal(8,2) GENERATED ALWAYS AS (Quantity* UnitPrice) VIRTUAL;
+
+--Add OrderTotal
+
+ALTER Table `Order` ADD OrderTotal Decimal(8,2);
+
+--Drop Phone column
+
+ALTER Table Customer DROP Column Phone;
+
+--STORED PROCEDURE To Change UnitPrice as CurrentPrice
+
+DELIMITER //
+
+CREATE OR REPLACE PROCEDURE proc_FillUnitPrice()
+BEGIN
+        UPDATE OrderLine
+        JOIN Product ON OrderLine.ProductID=Product.ProductID
+        SET UnitPrice= CurrentPrice
+        WHERE UnitPrice IS NULL;
+END;
+//
+
+DELIMITER ;
+
+-- STORED PROCEDURE To Update NULL Value of Order Table
+
+DELIMITER //
+
+CREATE OR REPLACE PROCEDURE proc_FillOrderTotal()
+BEGIN
+        UPDATE `Order`
+        SET OrderTotal= (
+                SELECT SUM(LineTotal) FROM OrderLine WHERE OrderLine.OrderID= `Order`.OrderID GROUP BY OrderID
+        )
+        WHERE OrderTotal IS NULL;
+END;
+//
+
+DELIMITER ;
+
+--STORED PROCEDURE To REFRESH MATERIALIZED VIEWS
+
+DELIMITER //
+
+CREATE OR REPLACE PROCEDURE proc_RefreshMV()
+BEGIN
+
+                DELETE FROM mv_ProductBuyers;
+                INSERT INTO mv_ProductBuyers SELECT * FROM v_ProductBuyers;
+                DELETE FROM mv_CustomerPurchases;
+                INSERT INTO mv_CustomerPurchases  SELECT * FROM v_CustomerPurchases;
+
+END;
+//
+
+DELIMITER ;
